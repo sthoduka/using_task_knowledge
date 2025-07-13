@@ -29,7 +29,7 @@ class VideoClassifier(nn.Module):
         else:
             vid, robot_actions, lbl, _ = batch
         vid = (vid,) # mvit expects an array of inputs and takes the first element
-        out = self.video_model(vid) # TODO: remove temp_emb from MVIT model
+        out = self.video_model(vid)
         out = self.classifier(out)
         return out
 
