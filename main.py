@@ -18,24 +18,22 @@ def main():
     parser.add_argument('--num_classes', default=2, type=int, help='number of classes')
 
     parser.add_argument('--action_subset_frame_selection', action='store_true', help="true if limiting range for frame selection")
-    parser.add_argument('--defect_segment_selection', action='store_true', help="true if selecting frames based on time when failures occur")
-    parser.add_argument('--cropped', action='store_true', help="true if images should be cropped with fixed values")
     parser.add_argument('--action_crop', action='store_true', help="true if images should be cropped based on the action")
-    parser.add_argument('--random_frame_select', action='store_true', help="select random frames during training")
-    parser.add_argument('--dense_sampling', action='store_true', help="sample all frames")
-    parser.add_argument('--variable_frame_rate_augmentation', action='store_true', help="apply variable frame rate augmentation")
-    parser.add_argument('--non_action_aligned_variable_frame_rate_augmentation', action='store_true', help="apply augmentation randomly without aligning to actions")
+    parser.add_argument('--action_aligned_fps_aug', action='store_true', help="apply variable frame rate augmentation")
+    parser.add_argument('--non_action_aligned_fps_aug', action='store_true', help="apply augmentation randomly without aligning to actions")
 
     parser.add_argument('--num_outcome_classes', default=2, type=int, help="number of classification outcomes")
     parser.add_argument('--selected_action', default='', type=str, help="only focus on this action")
     parser.add_argument('--actions_separately', action='store_true', help="true if we want to treat each action within the task as a separate trial")
 
+    parser.add_argument('--finonet', action='store_true', help="use finonet model")
+
     # model specific
     parser.add_argument('--mvit_config', default='configs/MVIT_B_32x3_CONV.yaml', type=str, help='config for MViT model')
     parser.add_argument('--mvit_ckpt', default='checkpoints/k600.pyth', type=str, help='checkpoint for MViT model')
     parser.add_argument('--img_pair_model', default='resnet18', type=str, help='resnet18, vit')
-    parser.add_argument('--crop_size', type=int, default=2048, help='Size to crop to')
-    parser.add_argument('--resize_size', type=int, default=750, help='Size to resize to after cropping')
+    parser.add_argument('--crop_size', type=int, default=650, help='Size to crop to')
+    parser.add_argument('--resize_size', type=int, default=224, help='Size to resize to after cropping')
 
     # misc
     parser.add_argument('--batch_size', default=64, type=int, help='Batch Size')
