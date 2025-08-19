@@ -29,44 +29,33 @@ python main.py \
 
 ```
 
-Action Subset
--------------
-Add the following argument:
-```
---action_subset_frame_selection
-```
+* Action Subset
+    Add the following argument:
+    ```
+    --action_subset_frame_selection
 
-Action-based Crop
------------------
-Add the following argument:
-```
---action_crop
-```
-
-Action-aligned FPS augmentation
--------------------------------
-Add the following argument:
-```
---action_aligned_fps_aug
-```
-
-Random FPS augmentation
------------------------
-Add the following argument:
-```
---non_action_aligned_fps_aug
-```
-
-Treat each action as a separate sample
----------------------------------------
-Add the following argument:
-```
---actions_separately
-```
-
-Image Pair Model
-----------------
-Replace the `dataset` argument
-```
---dataset=armbench_img_pair
-```
+* Action-based Crop
+    Add the following argument:
+    ```
+    --action_crop
+    ```
+* Action-aligned FPS augmentation
+    Add the following argument:
+    ```
+    --action_aligned_fps_aug
+    ```
+* Random FPS augmentation
+    Add the following argument:
+    ```
+    --non_action_aligned_fps_aug
+    ```
+* Treat each action as a separate sample
+    Add the following argument:
+    ```
+    --actions_separately
+    ```
+* Image Pair Model
+    Replace the `dataset` argument
+    ```
+    --dataset=armbench_img_pair
+    ```
