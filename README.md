@@ -7,8 +7,7 @@ The MViT checkpoint can be found [here](https://github.com/facebookresearch/Slow
 
 We train the baseline for 5 epochs, and load that checkpoint using the `partial_ckpt` argument and train all models (including the baseline) for another 10 epochs. Alternatively, you could just train your model for 15 epochs to get similar results.
 
-Baseline
---------
+The following command will run the training and test script for the baseline model:
 ```
 python main.py \
   --data_root=/path/to/armbench-defects-video-0.1/ \
@@ -33,6 +32,7 @@ python main.py \
     Add the following argument:
     ```
     --action_subset_frame_selection
+    ```
 
 * Action-based Crop
     Add the following argument:
