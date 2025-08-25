@@ -1,9 +1,13 @@
 This repository contains the code for the paper "Enhancing Video-Based Robot Failure Detection Using Task Knowledge" to appear at the European Conference on Mobile Robots 2025.
 
+![Concept](docs/concept.svg)
+
 ## Train and Test
+Install the requirements using `pip install -r requirements.txt`
+
 ### ARMBench
 
-The MViT checkpoint can be found [here](https://github.com/facebookresearch/SlowFast/blob/main/MODEL_ZOO.md) ("Kinetics/MVIT_B_32x3_CONV_K600"). You will need to install the SlowFast library
+The MViT checkpoint can be found [here](https://github.com/facebookresearch/SlowFast/blob/main/MODEL_ZOO.md) ("Kinetics/MVIT_B_32x3_CONV_K600").
 
 We train the baseline for 5 epochs, and load that checkpoint using the `partial_ckpt` argument and train all models (including the baseline) for another 10 epochs. Alternatively, you could just train your model for 15 epochs to get similar results.
 
@@ -27,6 +31,7 @@ python main.py \
   --log_dir=logs
 
 ```
+Add/replace the following options for the different variants mentioned in the paper:
 
 * Action Subset:
     ```
