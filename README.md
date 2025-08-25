@@ -3,7 +3,7 @@ This repository contains the code for the paper "Enhancing Video-Based Robot Fai
 ## Train and Test
 ### ARMBench
 
-The MViT checkpoint can be found [here](https://github.com/facebookresearch/SlowFast/blob/main/MODEL_ZOO.md) ("Kinetics/MVIT_B_32x3_CONV_K600")
+The MViT checkpoint can be found [here](https://github.com/facebookresearch/SlowFast/blob/main/MODEL_ZOO.md) ("Kinetics/MVIT_B_32x3_CONV_K600"). You will need to install the SlowFast library
 
 We train the baseline for 5 epochs, and load that checkpoint using the `partial_ckpt` argument and train all models (including the baseline) for another 10 epochs. Alternatively, you could just train your model for 15 epochs to get similar results.
 
@@ -52,4 +52,58 @@ python main.py \
 * Image Pair Model
     ```
     --dataset=armbench_img_pair
+    ```
+
+### FAILURE
+```
+python main.py \
+  --data_root=/path/to/finonet/ \
+  --dataset=failure_video \
+  --num_classes=2 \
+  --mvit_config=configs/MVIT_B_32x3_CONV.yaml \
+  --mvit_ckpt=/path/to/k600.pyth \
+  --batch_size=1 \
+  --accumulate_grad_batches=16 \
+  --n_threads=16 \
+  --learning_rate=0.0001 \
+  --max_epochs=50 \
+  --enable_progress_bar \
+  --log_dir=logs \
+```
+
+* Action-aligned FPS augmentation
+    ```
+    --action_aligned_fps_aug
+    ```
+
+* Image Pair Model
+    ```
+    --dataset=failure_img_pair
+    ```
+
+### (Im)PerfectPour
+```
+python main.py \
+  --data_root=/path/to/ImperfectPour/ \
+  --dataset=imperfect_pour \
+  --num_classes=2 \
+  --mvit_config=configs/MVIT_B_32x3_CONV.yaml \
+  --mvit_ckpt=/path/to/k600.pyth \
+  --batch_size=1 \
+  --accumulate_grad_batches=16 \
+  --n_threads=16 \
+  --learning_rate=0.0001 \
+  --max_epochs=50 \
+  --enable_progress_bar \
+  --log_dir=logs \
+```
+
+* Action-aligned FPS augmentation
+    ```
+    --action_aligned_fps_aug
+    ```
+
+* Image Pair Model
+    ```
+    --dataset=imperfect_pour_img_pair
     ```
