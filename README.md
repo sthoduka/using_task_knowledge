@@ -1,4 +1,9 @@
-This repository contains the code for the paper "Enhancing Video-Based Robot Failure Detection Using Task Knowledge" to appear at the European Conference on Mobile Robots 2025.
+# Enhancing Video-Based Robot Failure Detection Using Task Knowledge
+
+[<a href="https://sthoduka.github.io/using_task_knowledge/">Website</a>] 
+[<a href="https://zenodo.org/records/15873769">Dataset</a>]
+
+This repository contains the code accompanying the paper "Enhancing Video-Based Robot Failure Detection Using Task Knowledge" to appear at the <a href="https://ecmr2025.dei.unipd.it/">European Conference on Mobile Robots 2025</a>. We propose to make use of task knowledge to improve performance of video-based robot failure detection. We use the temporal boundaries of the robot’s actions and the location of task-relevant objects to guide frame selection and pre-processing before using a video-classification model for failure detection.
 
 ![Concept](docs/concept.svg)
 
