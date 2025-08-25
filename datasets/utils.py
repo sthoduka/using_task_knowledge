@@ -26,6 +26,8 @@ def variable_fps_frame_selection(action_seq, high_fps_action, low_fps_action_cou
                 frames = action_frames[act_id][np.round(np.linspace(start_frame, len(action_frames[act_id])-1, num_frames)).astype(int)]
                 low_fps_frames.append(frames)
                 num_low_fps_frames += len(frames)
+            else:
+                low_fps_frames.append(np.array([]))
         else:
             low_fps_frames.append([])
     if training and len(action_frames[high_fps_action]) > 10:
