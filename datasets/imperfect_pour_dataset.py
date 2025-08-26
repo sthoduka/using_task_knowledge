@@ -117,10 +117,7 @@ def get_video(video_path, frame_seq, hparams, training=True, data=None, index=No
             )
         selected_frames = frame_seq[selected_frames]
     else:
-        if training:
-            start_frame = np.random.randint(0, 5)
-        else:
-            start_frame = 0
+        start_frame = np.random.randint(0, 5) if training else 0
         selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)]
     vid = vr.get_batch(selected_frames)
     vid = vid.permute(0, 3, 1, 2) # T x C X H X W

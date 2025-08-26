@@ -9,14 +9,14 @@ def variable_fps_frame_selection(action_seq, high_fps_action, low_fps_action_cou
     unique_action_ids: available unique action ids
     '''
 
-    action_frames = []
+    action_frames = {}
     for act_id in unique_action_ids:
         frames = np.where(action_seq == act_id)[0]
         transition_idx = np.where(np.abs(np.diff(frames)) > 1)[0]
         if len(transition_idx) > 0:
             frames = frames[:transition_idx[0]+1]
-        action_frames.append(frames)
-    low_fps_frames = []
+        action_frames[act_id] = frames
+    low_fps_frames = {}
     num_low_fps_frames = 0
     for act_id in unique_action_ids:
         if act_id in low_fps_action_counts:
@@ -24,12 +24,12 @@ def variable_fps_frame_selection(action_seq, high_fps_action, low_fps_action_cou
                 num_frames = low_fps_action_counts[act_id]
                 start_frame = np.random.randint(0, 5) if training else 0
                 frames = action_frames[act_id][np.round(np.linspace(start_frame, len(action_frames[act_id])-1, num_frames)).astype(int)]
-                low_fps_frames.append(frames)
+                low_fps_frames[act_id] = frames
                 num_low_fps_frames += len(frames)
             else:
-                low_fps_frames.append(np.array([]))
+                low_fps_frames[act_id] = np.array([])
         else:
-            low_fps_frames.append([])
+            low_fps_frames[act_id] = np.array([])
     if training and len(action_frames[high_fps_action]) > 10:
         start_frame = np.random.randint(0, 5)
     else:

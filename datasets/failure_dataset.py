@@ -102,10 +102,7 @@ def load_images(path, hparams, frame_seq, training=False, samples=None, video_id
     if len(frame_seq):
         # we just have one array of frame ids
         if isinstance(frame_seq, np.ndarray):
-            if training:
-                start_frame = np.random.randint(0, 5)
-            else:
-                start_frame = 0
+            start_frame = np.random.randint(0, 5) if training else 0
             selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)]
     elif hparams.action_aligned_fps_aug and (training or hparams.selected_action != ''):
         actions = samples['robot_activity'][video_id]
@@ -137,10 +134,7 @@ def load_images(path, hparams, frame_seq, training=False, samples=None, video_id
                     training=training
             )
     else:
-        if training:
-            start_frame = np.random.randint(0, 5)
-        else:
-            start_frame = 0
+        start_frame = np.random.randint(0, 5) if training else 0
         selected_frames = np.round(np.linspace(start_frame, len(imgs)-1, num_frames_to_sample)).astype(int)
     torch_imgs = []
 
