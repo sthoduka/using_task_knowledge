@@ -113,6 +113,10 @@ class FailureClassificationTrainer(pl.LightningModule):
             del results['val_gt']
             del results['val_predictions']
             del results['val_logits']
+            del results['val_trial_names']
+            del results['val_robot_actions']
+            if 'val_aug_logits' in results:
+                del results['val_aug_logits']
 
         for key, value in results.items():
             self.log(key, value)
@@ -166,13 +170,23 @@ class FailureClassificationTrainer(pl.LightningModule):
             gt = results['test_gt']
             pred = results['test_predictions']
             logits = results['test_logits']
+            trial_names = results['test_trial_names']
+            robot_actions = results['test_robot_actions']
             save_path = self.logger.log_dir
             np.save(os.path.join(save_path, 'gt.npy'), gt)
             np.save(os.path.join(save_path, 'pred.npy'), pred)
             np.save(os.path.join(save_path, 'logits.npy'), logits)
+            np.save(os.path.join(save_path, 'robot_actions.npy'), robot_actions)
+            with open(os.path.join(save_path, 'trials.json'), 'w') as fp:
+                json.dump(trial_names, fp)
+            if 'test_aug_logits' in results:
+                np.save(os.path.join(save_path, 'aug_logits.npy'), results['test_aug_logits'])
+                del results['test_aug_logits']
             del results['test_gt']
             del results['test_predictions']
             del results['test_logits']
+            del results['test_trial_names']
+            del results['test_robot_actions']
         for key, value in results.items():
             if key not in ['test_gt', 'test_logits', 'test_predictions', 'test_def_seg']:
                 self.log(key, value)

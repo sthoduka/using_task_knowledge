@@ -10,6 +10,7 @@ import decord
 decord.bridge.set_bridge('torch')
 
 import cv2
+import itertools
 
 from torchvision.transforms import v2 as transforms
 import torch
@@ -47,19 +48,22 @@ def get_gripper_state(robot_type, joint_states):
     return gripper_states
 
 
-def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL):
+def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL, training=True):
     trials = sorted(glob.glob(data_root + '/*'))
-    data_robot_type = []
-    data_task_type = []
-    data_video_path = []
-    data_wrench_aligned = []
-    data_robot_actions = []
-    data_label = []
-    data_human_activity = []
-    data_gripper_state = []
+    data_robot_type = {}
+    data_task_type = {}
+    data_video_path = {}
+    data_wrench_aligned = {}
+    data_robot_actions = {}
+    data_label = {}
+    data_human_activity = {}
+    data_gripper_state = {}
+    data_flow = {}
+    data_frame_sequences = {}
     data_trials = []
-    data_flow = []
-    data_frame_sequences = []
+    # used for test time augmentation; trials are referred to multiple times
+    data_trial_action = []
+
     for trial in trials:
         info_file = os.path.join(trial, 'task_info.json')
         with open(info_file, 'r') as fp:
@@ -74,22 +78,21 @@ def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL
         with open(os.path.join(label_root, os.path.basename(trial) + '.json')) as fp:
             label_data = json.load(fp)
 
-        data_label.append(label_data['outcome'])
-        data_trials.append(trial)
-        data_robot_type.append(task_info['robot'])
-        data_task_type.append(task_info['task'])
+        data_label[trial] = label_data['outcome']
+        data_robot_type[trial] = task_info['robot']
+        data_task_type[trial] = task_info['task']
 
-        data_video_path.append(os.path.join(trial, 'head_cam.mp4'))
+        data_video_path[trial] = os.path.join(trial, 'head_cam.mp4')
 
         flow_files = np.array(sorted(glob.glob(os.path.join(trial, 'flow') + '/*_x.jpg')))
-        data_flow.append(flow_files)
+        data_flow[trial] = flow_files
 
         robot_actions = np.load(os.path.join(trial, 'robot_actions.npy'))
         if hparams.action_subset_frame_selection:
             selected_frames = np.where((robot_actions > 0) & (robot_actions < 4))[0]
-            data_frame_sequences.append(selected_frames)
+            data_frame_sequences[trial] = selected_frames
         else:
-            data_frame_sequences.append([])
+            data_frame_sequences[trial] = []
 
         aligned_wrench = np.load(os.path.join(trial, 'wrench_resampled.npy'))
         aligned_joint_pos = np.load(os.path.join(trial, 'joint_pos_resampled.npy'))
@@ -101,12 +104,23 @@ def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL
         aligned_wrench = np.divide((aligned_wrench - mean), std)
 
 
-        data_wrench_aligned.append(aligned_wrench)
+        data_wrench_aligned[trial] = aligned_wrench
         gripper_state = get_gripper_state(task_info['robot'], aligned_joint_pos)
-        data_gripper_state.append(gripper_state)
-        data_robot_actions.append(robot_actions)
+        data_gripper_state[trial] = gripper_state
+        data_robot_actions[trial] = robot_actions
         human_activity_state = np.load(os.path.join(trial, 'human_activity.npy'))
-        data_human_activity.append(human_activity_state)
+        data_human_activity[trial] = human_activity_state
+        if hparams.action_aligned_fps_aug and not training:
+            unique_action_ids = [1, 2, 3]
+            for act_id in unique_action_ids:
+                data_trial_action.append(act_id)
+                data_trials.append(trial)
+            # normal frame rate
+            data_trial_action.append(0)
+            data_trials.append(trial)
+        else:
+            data_trials.append(trial)
+            data_trial_action.append(0)
     data = {}
     data['robot'] = data_robot_type
     data['task'] = data_task_type
@@ -119,25 +133,29 @@ def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL
     data['gripper_state'] = data_gripper_state
     data['human_activity'] = data_human_activity
     data['trials'] = data_trials
+    data['trial_action'] = data_trial_action
     return data
 
-def get_video(video_path, hparams, frame_seq, training=True, samples=None, video_id=None, load_video=True, num_frames_to_sample=64):
+def get_video(video_path, hparams, frame_seq, training=True, samples=None, video_id=None, index=None, load_video=True, num_frames_to_sample=64):
     vr = decord.VideoReader(video_path)
     if len(frame_seq):
         # we just have one array of frame ids
         if isinstance(frame_seq, np.ndarray):
             start_frame = np.random.randint(0, 5) if training else 0
             selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)]
-    elif hparams.action_aligned_fps_aug and training:
+    elif hparams.action_aligned_fps_aug:
         actions = samples['robot_actions'][video_id]
-        low_fps_action_counts = {1: int(0.25 * num_frames_tosample), 2: int(0.375 * num_frames_to_sample), 3: int(0.25 * num_frames_tosample)}
+        low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.375 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
         unique_action_ids = [1, 2, 3]
-        while True:
-            selected_action = np.random.randint(0, 4)
-            if selected_action == 0:
-                break
-            if len(np.where(actions == selected_action)[0]) > 10:
-                break
+        if training:
+            while True:
+                selected_action = np.random.randint(0, 4)
+                if selected_action == 0:
+                    break
+                if len(np.where(actions == selected_action)[0]) > 10:
+                    break
+        else:
+            selected_action = samples['trial_action'][index]
         if selected_action == 0:
             selected_frames = constant_fps_frame_selection(
                     actions,
@@ -194,7 +212,7 @@ def flow_loader_frame_ids(flow_files, frame_ids):
 class HandoverDataset(torch.utils.data.Dataset):
     def __init__(self, data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL, transform = None, training=False, num_classes=4):
         self.data_root = data_root
-        self.data = load_data(data_root, hparams, label_root, robot_type, task_type)
+        self.data = load_data(data_root, hparams, label_root, robot_type, task_type, training=training)
         if len(self.data['video']) == 0:
             msg = "Found 0 files in subfolders of: {}\n".format(self.data_root)
             raise RuntimeError(msg)
@@ -208,7 +226,7 @@ class HandoverDataset(torch.utils.data.Dataset):
         self.num_classes = num_classes
 
     def __getitem__(self, index):
-        video_id = index
+        video_id = self.data['trials'][index]
         video_file = self.data['video'][video_id]
 
         wrench = self.data['wrench_aligned'][video_id]
@@ -220,9 +238,9 @@ class HandoverDataset(torch.utils.data.Dataset):
         robot_actions = self.data['robot_actions'][video_id]
         frame_seq = self.data['frame_seq'][video_id]
         if self.hparams.video_type == 'rgb':
-            clip, frame_ids = get_video(video_file, self.hparams, frame_seq, training=self.training, samples=self.data, video_id=video_id, num_frames_to_sample=self.clip_size)
+            clip, frame_ids = get_video(video_file, self.hparams, frame_seq, training=self.training, samples=self.data, video_id=video_id, index=index, num_frames_to_sample=self.clip_size)
         elif self.hparams.video_type == 'flow':
-            frame_ids = get_video(video_file, self.hparams, frame_seq, training=self.training, samples=self.data, video_id=video_id, load_video=False, num_frames_to_sample=self.clip_size)
+            frame_ids = get_video(video_file, self.hparams, frame_seq, training=self.training, samples=self.data, video_id=video_id, index=index, load_video=False, num_frames_to_sample=self.clip_size)
             clip = flow_loader_frame_ids(self.data['flow'][video_id], frame_ids)
         wrench = wrench[frame_ids]
         gripper_state = gripper_state[frame_ids]
@@ -237,10 +255,12 @@ class HandoverDataset(torch.utils.data.Dataset):
             clip = clip.permute((1, 0, 2, 3)).contiguous() # C, T, H, W
         label = self.data['label'][video_id]
 
-        return clip, wrench, gripper_state, label, video_id
+        trial_action = self.data['trial_action'][index]
+
+        return clip, wrench, gripper_state, label, video_id, trial_action
 
     def __len__(self):
-        return len(self.data['video'])
+        return len(self.data['trials'])
 
 def get_handover_dataset(hparams, dataset_type='train'):
     dataset_root = {'train': os.path.join(hparams.data_root, 'training_set'), 'val': os.path.join(hparams.data_root, 'val_set'), 'test': os.path.join(hparams.data_root, 'test_set')}
@@ -267,11 +287,14 @@ def get_handover_dataset(hparams, dataset_type='train'):
 
 def accumulate_handover_results(batch, output, hparams):
     outputs = {}
-    vid, wrench, gripper_state, label, video_id = batch
+    vid, wrench, gripper_state, label, video_id, trial_action = batch
     per_vid_predictions = torch.argmax(output, axis=1).detach().cpu()
     outputs['cls_logits'] = output.detach().cpu()
     outputs['cls_predictions'] = per_vid_predictions
     outputs['cls_gt'] = label.detach().cpu()
+    outputs['trial_names'] = video_id
+    outputs['robot_actions'] = trial_action.detach().cpu()
+
     return outputs
 
 def compute_handover_metrics(outputs, result_type='val'):
@@ -279,11 +302,34 @@ def compute_handover_metrics(outputs, result_type='val'):
     gt = torch.cat([out['cls_gt'] for out in outputs])
     logits = torch.cat([out['cls_logits'] for out in outputs])
 
-    accuracy = sklearn.metrics.accuracy_score(gt, predictions)
+    trial_names = [out['trial_names'] for out in outputs]
+    trial_names = list(itertools.chain(*trial_names))
+    robot_actions = [out['robot_actions'] for out in outputs]
+    robot_actions = np.array(list(itertools.chain(*robot_actions)))
+
+    nominal_fps_gt = gt[robot_actions == 0]
+    nominal_fps_pred = predictions[robot_actions == 0]
+    accuracy = sklearn.metrics.accuracy_score(nominal_fps_gt, nominal_fps_pred)
 
     results = {}
     results['%s_accuracy' % result_type] = accuracy
     results['%s_logits' % result_type] = logits
-    results['%s_gt' % result_type] = gt
+    results['%s_gt' % result_type] = nominal_fps_gt
     results['%s_predictions' % result_type] = predictions
+    results['%s_trial_names' % result_type] = trial_names
+    results['%s_robot_actions' % result_type] = robot_actions
+
+    if np.unique(robot_actions).shape[0] > 1:
+        unique_actions = np.unique(robot_actions)
+        aug_logits = None
+        for act in unique_actions:
+            if aug_logits is None:
+                aug_logits = logits[robot_actions == act]
+            else:
+                aug_logits += logits[robot_actions == act]
+        aug_logits /= len(unique_actions)
+        aug_pred = np.argmax(aug_logits, axis=1)
+        aug_accuracy = sklearn.metrics.accuracy_score(nominal_fps_gt.numpy(), aug_pred.numpy())
+        results['%s_aug_accuracy' % result_type] = aug_accuracy
+        results['%s_aug_logits' % result_type] = aug_logits.numpy()
     return results

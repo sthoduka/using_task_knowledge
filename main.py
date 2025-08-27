@@ -72,7 +72,7 @@ def main():
     trainer_obj = pl.Trainer(accelerator="gpu", devices="1", log_every_n_steps=1, default_root_dir=args.log_dir, max_epochs=args.max_epochs, accumulate_grad_batches=args.accumulate_grad_batches, enable_progress_bar=args.enable_progress_bar, callbacks=[checkpoint_callback])
     model = trainer.FailureClassificationTrainer(args)
     if args.checkpoint != '':
-        model = trainer.FailureClassificationTrainer.load_from_checkpoint(args.checkpoint)
+        model = trainer.FailureClassificationTrainer.load_from_checkpoint(args.checkpoint, data_root=args.data_root)
         trainer_obj.test(model)
     else:
         trainer_obj.fit(model)

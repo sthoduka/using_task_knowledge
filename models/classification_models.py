@@ -120,7 +120,7 @@ class MultimodalClassifier(nn.Module):
                                 )
 
     def forward(self, batch):
-        inputs, wrench, gripper_state, labels, vidx = batch
+        inputs, wrench, gripper_state, labels, vidx, trial_action = batch
         i3d_feat = self.i3d.extract_features(inputs)
         wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
         gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
@@ -130,7 +130,7 @@ class MultimodalClassifier(nn.Module):
         return per_clip_logits
 
     def loss_function(self, output, batch):
-        inputs, wrench, gripper_state, labels, vidx = batch
+        inputs, wrench, gripper_state, labels, vidx, trial_action = batch
         loss = F.cross_entropy(output, labels)
         return loss
 
