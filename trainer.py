@@ -15,8 +15,9 @@ import pytorch_lightning as pl
 from datasets.armbench_dataset import get_armbench_dataset, accumulate_armbench_results, compute_armbench_metrics
 from datasets.failure_dataset import get_failure_dataset, accumulate_failure_results, compute_failure_metrics, accumulate_failure_video_results
 from datasets.imperfect_pour_dataset import get_imp_dataset, accumulate_imp_results, compute_imp_metrics
+from datasets.handover_dataset import get_handover_dataset, accumulate_handover_results, compute_handover_metrics
 
-from models.classification_models import VideoClassifier, ImgPairClassifier
+from models.classification_models import VideoClassifier, ImgPairClassifier, MultimodalClassifier
 from models.finonet import VGGRGB
 
 import pdb
@@ -42,6 +43,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             self.model = VideoClassifier(self.hparams)
         elif self.hparams.dataset == 'failure_img_pair':
             self.model = ImgPairClassifier(self.hparams)
+        elif self.hparams.dataset == 'handover_video':
+            self.model = MultimodalClassifier(self.hparams)
         self.train_outputs = []
         self.val_outputs = []
         self.test_outputs = []
@@ -67,6 +70,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             outputs = accumulate_failure_video_results(batch, out, self.hparams)
         elif 'failure_img_pair' in self.hparams.dataset:
             outputs = accumulate_failure_video_results(batch, out, self.hparams)
+        elif 'handover' in self.hparams.dataset:
+            outputs = accumulate_handover_results(batch, out, self.hparams)
         outputs['loss'] = loss
         self.val_outputs.append(outputs)
         return outputs
@@ -82,6 +87,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             outputs = accumulate_failure_video_results(batch, out, self.hparams)
         elif 'failure_img_pair' in self.hparams.dataset:
             outputs = accumulate_failure_video_results(batch, out, self.hparams)
+        elif 'handover' in self.hparams.dataset:
+            outputs = accumulate_handover_results(batch, out, self.hparams)
         outputs['loss'] = loss
         self.test_outputs.append(outputs)
         return outputs
@@ -100,6 +107,12 @@ class FailureClassificationTrainer(pl.LightningModule):
             results, gt, predictions, trials, logits = compute_imp_metrics(self.val_outputs, result_type='val')
         elif 'failure' in self.hparams.dataset:
             results, gt, predictions, logits, trial_names = compute_failure_metrics(self.val_outputs, result_type='val')
+
+        elif 'handover' in self.hparams.dataset:
+            results = compute_handover_metrics(self.val_outputs, result_type='val')
+            del results['val_gt']
+            del results['val_predictions']
+            del results['val_logits']
 
         for key, value in results.items():
             self.log(key, value)
@@ -148,6 +161,18 @@ class FailureClassificationTrainer(pl.LightningModule):
                 np.save(os.path.join(save_path, 'logits.npy'), logits)
                 with open(os.path.join(save_path, 'trials.json'), 'w') as fp:
                     json.dump(trial_names, fp)
+        elif 'handover' in self.hparams.dataset:
+            results = compute_handover_metrics(self.test_outputs, result_type='test')
+            gt = results['test_gt']
+            pred = results['test_predictions']
+            logits = results['test_logits']
+            save_path = self.logger.log_dir
+            np.save(os.path.join(save_path, 'gt.npy'), gt)
+            np.save(os.path.join(save_path, 'pred.npy'), pred)
+            np.save(os.path.join(save_path, 'logits.npy'), logits)
+            del results['test_gt']
+            del results['test_predictions']
+            del results['test_logits']
         for key, value in results.items():
             if key not in ['test_gt', 'test_logits', 'test_predictions', 'test_def_seg']:
                 self.log(key, value)
@@ -163,11 +188,17 @@ class FailureClassificationTrainer(pl.LightningModule):
         self.train_outputs.clear()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
+        if 'handover' in self.hparams.dataset:
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+        else:
+            optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
         if self.hparams.lr_scheduler == 'cosine':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.max_epochs, eta_min=self.hparams.learning_rate/20)
         elif self.hparams.lr_scheduler == 'multistep':
-            scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[self.hparams.lr_step_size], gamma=0.5)
+            if 'handover' in self.hparams.dataset:
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.hparams.lr_step_size, gamma=0.1)
+            else:
+                scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[self.hparams.lr_step_size], gamma=0.5)
         return [optimizer], [scheduler]
 
     def train_dataloader(self):
@@ -177,6 +208,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             train_dataset = get_imp_dataset(self.hparams, dataset_type='train')
         elif 'failure' in self.hparams.dataset:
             train_dataset = get_failure_dataset(self.hparams, dataset_type='train')
+        elif 'handover' in self.hparams.dataset:
+            train_dataset = get_handover_dataset(self.hparams, dataset_type='train')
         if self.training:
             return torch.utils.data.DataLoader(train_dataset, batch_size=self.hparams.batch_size,
                                                shuffle=True, num_workers=self.hparams.n_threads, pin_memory=False)
@@ -191,6 +224,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             val_dataset = get_imp_dataset(self.hparams, dataset_type='val')
         elif 'failure' in self.hparams.dataset:
             val_dataset = get_failure_dataset(self.hparams, dataset_type='val')
+        elif 'handover' in self.hparams.dataset:
+            val_dataset = get_handover_dataset(self.hparams, dataset_type='val')
         return torch.utils.data.DataLoader(val_dataset, batch_size=self.hparams.batch_size,
                                            shuffle=False, num_workers=self.hparams.n_threads, pin_memory=False)
     def test_dataloader(self):
@@ -200,6 +235,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             test_dataset = get_imp_dataset(self.hparams, dataset_type='test')
         elif 'failure' in self.hparams.dataset:
             test_dataset = get_failure_dataset(self.hparams, dataset_type='test')
+        elif 'handover' in self.hparams.dataset:
+            test_dataset = get_handover_dataset(self.hparams, dataset_type='test')
         return torch.utils.data.DataLoader(test_dataset, batch_size=self.hparams.batch_size,
                                            shuffle=False, num_workers=self.hparams.n_threads, pin_memory=False)
 

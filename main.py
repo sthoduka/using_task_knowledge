@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--num_outcome_classes', default=2, type=int, help="number of classification outcomes")
     parser.add_argument('--selected_action', default='', type=str, help="only focus on this action")
     parser.add_argument('--actions_separately', action='store_true', help="true if we want to treat each action within the task as a separate trial")
+    # handover dataset
+    parser.add_argument('--video_type', default='rgb', type=str, help="rgb or flow for handover dataset")
 
     parser.add_argument('--finonet', action='store_true', help="use finonet model")
 
@@ -34,6 +36,7 @@ def main():
     parser.add_argument('--img_pair_model', default='resnet18', type=str, help='resnet18, vit')
     parser.add_argument('--crop_size', type=int, default=650, help='Size to crop to')
     parser.add_argument('--resize_size', type=int, default=224, help='Size to resize to after cropping')
+    parser.add_argument('--i3d_model_path', default='checkpoints/rgb_imagenet.pt', type=str, help='path to i3d ckpt')
 
     # misc
     parser.add_argument('--batch_size', default=64, type=int, help='Batch Size')
