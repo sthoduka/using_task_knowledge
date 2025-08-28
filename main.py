@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--actions_separately', action='store_true', help="true if we want to treat each action within the task as a separate trial")
     # handover dataset
     parser.add_argument('--video_type', default='rgb', type=str, help="rgb or flow for handover dataset")
+    # VT dataset
+    parser.add_argument('--vtd_tactile_data_type', default='image', type=str, help="image or 1d")
 
     parser.add_argument('--finonet', action='store_true', help="use finonet model")
 

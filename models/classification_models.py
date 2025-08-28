@@ -62,6 +62,8 @@ class ImgPairClassifier(nn.Module):
     def forward(self, batch):
         if 'failure' in self.hparams.dataset or 'imperfect_pour' in self.hparams.dataset:
             img_pair, action_lbl, lbl, _ = batch
+        elif 'handover' in self.hparams.dataset:
+            img_pair, robot_action, lbl, trial_id, orig_lbl = batch
         else:
             img_pair, robot_action, lbl, trial_id = batch
         B, T, C, H, W = img_pair.size()
@@ -77,6 +79,9 @@ class ImgPairClassifier(nn.Module):
             img_pair, action_lbl, lbl, trial_id = batch
             out = output
             loss = F.cross_entropy(out, lbl)
+        elif 'handover' in self.hparams.dataset:
+            img_pair, robot_action, lbl, trial_id, orig_lbl = batch
+            loss = F.cross_entropy(output, lbl)
         else:
             img_pair, robot_action, lbl, trial_id = batch
             loss = F.binary_cross_entropy_with_logits(output, lbl)
@@ -98,39 +103,54 @@ class MultimodalClassifier(nn.Module):
             if hparams.i3d_model_path != '':
                 print('Loading %s weights ' % hparams.i3d_model_path)
                 self.i3d.load_state_dict(torch.load(hparams.i3d_model_path))
-        self.i3d.replace_logits(hparams.num_classes, in_channels=1024+16+16)
+        in_channels = 1024
+        if 'handover' in hparams.dataset:
+            in_channels = in_channels + 16 + 16
+        self.i3d.replace_logits(hparams.num_classes, in_channels=in_channels)
 
-        self.wrench_conv = nn.Sequential(
-                                nn.Conv1d(6, 32, kernel_size=3, padding=2, dilation=2),
-                                nn.BatchNorm1d(32),
-                                nn.ReLU(),
-                                nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
-                                nn.BatchNorm1d(16),
-                                nn.ReLU(),
-                                nn.AdaptiveAvgPool1d(7)
-                                )
-        self.gripper_conv = nn.Sequential(
-                                nn.Conv1d(1, 32, kernel_size=3, padding=2, dilation=2),
-                                nn.BatchNorm1d(32),
-                                nn.ReLU(),
-                                nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
-                                nn.BatchNorm1d(16),
-                                nn.ReLU(),
-                                nn.AdaptiveAvgPool1d(7)
-                                )
+        if 'handover' in hparams.dataset:
+            self.wrench_conv = nn.Sequential(
+                                    nn.Conv1d(6, 32, kernel_size=3, padding=2, dilation=2),
+                                    nn.BatchNorm1d(32),
+                                    nn.ReLU(),
+                                    nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                                    nn.BatchNorm1d(16),
+                                    nn.ReLU(),
+                                    nn.AdaptiveAvgPool1d(7)
+                                    )
+            self.gripper_conv = nn.Sequential(
+                                    nn.Conv1d(1, 32, kernel_size=3, padding=2, dilation=2),
+                                    nn.BatchNorm1d(32),
+                                    nn.ReLU(),
+                                    nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                                    nn.BatchNorm1d(16),
+                                    nn.ReLU(),
+                                    nn.AdaptiveAvgPool1d(7)
+                                    )
+        self.hparams = hparams
 
     def forward(self, batch):
-        inputs, wrench, gripper_state, labels, vidx, trial_action = batch
+        if 'handover' in self.hparams.dataset:
+            inputs, wrench, gripper_state, labels, vidx, trial_action = batch
+        elif 'vtd' in self.hparams.dataset:
+            inputs, joint_pos, tactile, labels, vid = batch
+
         i3d_feat = self.i3d.extract_features(inputs)
-        wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
-        gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
-        feat = torch.cat((i3d_feat, wout, gout), axis=1)
+        if 'handover' in self.hparams.dataset:
+            wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
+            gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
+            feat = torch.cat((i3d_feat, wout, gout), axis=1)
+        elif 'vtd' in self.hparams.dataset:
+            feat = i3d_feat
         per_clip_logits = self.i3d.logits(self.i3d.dropout(feat)).squeeze(3).squeeze(3)
         per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
         return per_clip_logits
 
     def loss_function(self, output, batch):
-        inputs, wrench, gripper_state, labels, vidx, trial_action = batch
+        if 'handover' in self.hparams.dataset:
+            inputs, wrench, gripper_state, labels, vidx, trial_action = batch
+        elif 'vtd' in self.hparams.dataset:
+            inputs, joint_pos, tactile, labels, vid = batch
         loss = F.cross_entropy(output, labels)
         return loss
 
