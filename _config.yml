@@ -2,5 +2,7 @@ theme: jekyll-theme-dinky
 title: [using task knowledge]
 zenodo:
     dataset_url: https://zenodo.org/records/15873769
+publication:
+    pdf_url: https://arxiv.org/abs/2508.18705
 github:
   is_project_page: False
