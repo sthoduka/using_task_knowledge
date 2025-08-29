@@ -95,18 +95,36 @@ class MultimodalClassifier(nn.Module):
 
     def __init__(self, hparams, load_pretrained=True):
         super(MultimodalClassifier, self).__init__()
-        if hparams.video_type == 'rgb':
-            self.i3d = InceptionI3d(400, in_channels=3)
-        else:
-            self.i3d = InceptionI3d(400, in_channels=2)
-        if load_pretrained:
-            if hparams.i3d_model_path != '':
-                print('Loading %s weights ' % hparams.i3d_model_path)
-                self.i3d.load_state_dict(torch.load(hparams.i3d_model_path))
+        if 'handover' in hparams.dataset or ('vtd' in hparams.dataset and 'v' in hparams.vtd_data_type):
+            if hparams.video_type == 'rgb':
+                self.i3d = InceptionI3d(400, in_channels=3)
+            else:
+                self.i3d = InceptionI3d(400, in_channels=2)
+            if load_pretrained:
+                if hparams.i3d_model_path != '':
+                    print('Loading %s weights ' % hparams.i3d_model_path)
+                    self.i3d.load_state_dict(torch.load(hparams.i3d_model_path))
         in_channels = 1024
         if 'handover' in hparams.dataset:
             in_channels = in_channels + 16 + 16
-        self.i3d.replace_logits(hparams.num_classes, in_channels=in_channels)
+        if 'vtd' in hparams.dataset:
+            if 'v' not in hparams.vtd_data_type:
+                in_channels = 0
+            if 't' in hparams.vtd_data_type:
+                in_channels += 16
+            if 'p' in hparams.vtd_data_type:
+                in_channels += 16
+
+        if 'vtd' in hparams.dataset and 'v' not in hparams.vtd_data_type:
+            self.logits = Unit3D(in_channels=in_channels, output_channels=hparams.num_classes,
+                                 kernel_shape=[1, 1, 1],
+                                 padding=0,
+                                 activation_fn=None,
+                                 use_batch_norm=False,
+                                 use_bias=True,
+                                 name='logits')
+        else:
+            self.i3d.replace_logits(hparams.num_classes, in_channels=in_channels)
 
         if 'handover' in hparams.dataset:
             self.wrench_conv = nn.Sequential(
@@ -127,6 +145,47 @@ class MultimodalClassifier(nn.Module):
                                     nn.ReLU(),
                                     nn.AdaptiveAvgPool1d(7)
                                     )
+        if 'vtd' in hparams.dataset:
+            if 't' in hparams.vtd_data_type:
+                if hparams.vtd_tactile_data_type == 'image':
+                    self.tactile_model_conv = nn.Sequential(
+                            nn.Conv3d(1, 32, kernel_size=(3,3,3), padding=2),
+                            nn.ReLU(),
+                            nn.Conv3d(32, 16, kernel_size=(3,3,3), padding=0),
+                            nn.ReLU(),
+                            nn.MaxPool3d(kernel_size=(3,3,3)),
+                            nn.AdaptiveAvgPool3d((7, 1, 1)),
+                    )
+                else:
+                    self.tactile_model_conv = nn.Sequential(
+                            nn.Conv1d(16, 32, kernel_size=3, padding=2, dilation=2),
+                            nn.BatchNorm1d(32),
+                            nn.ReLU(),
+                            nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                            nn.BatchNorm1d(16),
+                            nn.ReLU(),
+                            nn.AdaptiveAvgPool1d(7),
+                    )
+            if 'p' in hparams.vtd_data_type:
+                if hparams.vtd_tactile_data_type == 'image':
+                    self.position_model_conv = nn.Sequential(
+                            nn.Conv3d(1, 32, kernel_size=(3,3,3), padding=2),
+                            nn.ReLU(),
+                            nn.Conv3d(32, 16, kernel_size=(3,3,3), padding=0),
+                            nn.ReLU(),
+                            nn.MaxPool3d(kernel_size=(3,3,3)),
+                            nn.AdaptiveAvgPool3d((7, 1, 1)),
+                    )
+                else:
+                    self.position_model_conv = nn.Sequential(
+                            nn.Conv1d(8, 32, kernel_size=3, padding=2, dilation=2),
+                            nn.BatchNorm1d(32),
+                            nn.ReLU(),
+                            nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                            nn.BatchNorm1d(16),
+                            nn.ReLU(),
+                            nn.AdaptiveAvgPool1d(7),
+                    )
         self.hparams = hparams
 
     def forward(self, batch):
@@ -135,15 +194,40 @@ class MultimodalClassifier(nn.Module):
         elif 'vtd' in self.hparams.dataset:
             inputs, joint_pos, tactile, labels, vid = batch
 
-        i3d_feat = self.i3d.extract_features(inputs)
         if 'handover' in self.hparams.dataset:
+            i3d_feat = self.i3d.extract_features(inputs)
             wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
             gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
             feat = torch.cat((i3d_feat, wout, gout), axis=1)
+            per_clip_logits = self.i3d.logits(self.i3d.dropout(feat)).squeeze(3).squeeze(3)
+            per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
         elif 'vtd' in self.hparams.dataset:
-            feat = i3d_feat
-        per_clip_logits = self.i3d.logits(self.i3d.dropout(feat)).squeeze(3).squeeze(3)
-        per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
+            if 'v' in self.hparams.vtd_data_type:
+                i3d_feat = self.i3d.extract_features(inputs)
+                feat = i3d_feat
+            if 't' in self.hparams.vtd_data_type:
+                tactile_feat = self.tactile_model_conv(tactile)
+                if tactile_feat.dim() == 3:
+                    tactile_feat = tactile_feat.unsqueeze(3).unsqueeze(3)
+                if 'v' in self.hparams.vtd_data_type:
+                    feat = torch.cat((feat, tactile_feat), axis=1)
+                else:
+                    feat = tactile_feat
+            if 'p' in self.hparams.vtd_data_type:
+                pos_feat = self.position_model_conv(joint_pos)
+                if pos_feat.dim() == 3:
+                    pos_feat = pos_feat.unsqueeze(3).unsqueeze(3)
+                if 'v' in self.hparams.vtd_data_type or 't' in self.hparams.vtd_data_type:
+                    feat = torch.cat((feat, pos_feat), axis=1)
+                else:
+                    feat = pos_feat
+            if 'v' in self.hparams.vtd_data_type:
+                per_clip_logits = self.i3d.logits(self.i3d.dropout(feat)).squeeze(3).squeeze(3)
+                per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
+            else:
+                per_clip_logits = self.logits(F.dropout(feat)).squeeze(3).squeeze(3)
+                per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
+
         return per_clip_logits
 
     def loss_function(self, output, batch):

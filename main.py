@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--video_type', default='rgb', type=str, help="rgb or flow for handover dataset")
     # VT dataset
     parser.add_argument('--vtd_tactile_data_type', default='image', type=str, help="image or 1d")
+    parser.add_argument('--vtd_data_type', default='v', type=str, help="vtp")
 
     parser.add_argument('--finonet', action='store_true', help="use finonet model")
 

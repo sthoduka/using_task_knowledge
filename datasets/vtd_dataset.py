@@ -233,8 +233,12 @@ class VTDVideoDataset(torch.utils.data.Dataset):
 
         joint_pos = joint_pos[frame_ids-sensor_offset]
         tactile = tactile[frame_ids-sensor_offset]
-        joint_pos = joint_pos.permute(3, 0, 1, 2) # C x T x H x W
-        tactile = tactile.permute(3, 0, 1, 2) # C x T x H x W
+        if self.hparams.vtd_tactile_data_type == '1d':
+            joint_pos = joint_pos.permute(1, 0) # C x T
+            tactile = tactile.permute(1, 0) # C x T
+        elif self.hparams.vtd_tactile_data_type == 'image':
+            joint_pos = joint_pos.permute(3, 0, 1, 2) # C x T x H x W
+            tactile = tactile.permute(3, 0, 1, 2) # C x T x H x W
 
         if self.transform is not None:
             clip = clip.to(dtype=torch.get_default_dtype()).div(255)
