@@ -109,10 +109,8 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
             data_tactile.append(tactile_data)
         else:
             positions = upsample_position(np.loadtxt(os.path.join(sample_root, 'pos.txt')))
-            positions = positions[:video_length]
             data_joint_pos_1d.append(torch.from_numpy(positions))
             tactile_data = upsample_tactile(np.loadtxt(os.path.join(sample_root, 'tactile.txt')))
-            tactile_data = tactile_data[:video_length]
             data_tactile_1d.append(torch.from_numpy(tactile_data))
 
     data = {}
