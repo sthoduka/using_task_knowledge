@@ -150,8 +150,10 @@ class MultimodalClassifier(nn.Module):
                 if hparams.vtd_tactile_data_type == 'image':
                     self.tactile_model_conv = nn.Sequential(
                             nn.Conv3d(1, 32, kernel_size=(3,3,3), padding=2),
+                            nn.BatchNorm3d(32),
                             nn.ReLU(),
                             nn.Conv3d(32, 16, kernel_size=(3,3,3), padding=0),
+                            nn.BatchNorm3d(16),
                             nn.ReLU(),
                             nn.MaxPool3d(kernel_size=(3,3,3)),
                             nn.AdaptiveAvgPool3d((7, 1, 1)),
@@ -170,8 +172,10 @@ class MultimodalClassifier(nn.Module):
                 if hparams.vtd_tactile_data_type == 'image':
                     self.position_model_conv = nn.Sequential(
                             nn.Conv3d(1, 32, kernel_size=(3,3,3), padding=2),
+                            nn.BatchNorm3d(32),
                             nn.ReLU(),
                             nn.Conv3d(32, 16, kernel_size=(3,3,3), padding=0),
+                            nn.BatchNorm3d(16),
                             nn.ReLU(),
                             nn.MaxPool3d(kernel_size=(3,3,3)),
                             nn.AdaptiveAvgPool3d((7, 1, 1)),
