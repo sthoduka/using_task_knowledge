@@ -14,6 +14,11 @@ import cv2
 
 import torch
 
+from datasets.utils import (
+        variable_fps_frame_selection,
+        constant_fps_frame_selection,
+)
+
 VIDEO_FPS = 18.0
 SENSOR_FPS = 16.67
 SENSOR_TIME = 24.0 # 400 samples at 16.67 Hz
@@ -21,34 +26,38 @@ NUM_UPSAMPLES = int(SENSOR_TIME * VIDEO_FPS) # 24 * 18 = 432
 action_classes = {"pre-grasp": 0, "grasp": 1, "lift": 2, "release": 3}
 action_classes_txt = {item:key for key,item in action_classes.items()}
 
-def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_type='image'):
-    data_paths = []
-    data_actions = []
-    data_vid_feat = []
-    data_defect_mask = []
-    data_joint_pos = []
-    data_tactile = []
-    data_joint_pos_1d = []
-    data_tactile_1d = []
-    data_video_sensor_offset = []
-    data_video_paths = []
-    labels = []
+def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_type='image', hparams=None, training=False):
+    data_paths = {}
+    data_actions = {}
+    data_vid_feat = {}
+    data_defect_mask = {}
+    data_joint_pos = {}
+    data_tactile = {}
+    data_joint_pos_1d = {}
+    data_tactile_1d = {}
+    data_video_sensor_offset = {}
+    data_video_paths = {}
+    labels = {}
+    data_trials = []
+    # used for test time augmentation; trials are referred to multiple times
+    data_trial_action = []
     for sample in samples:
+        trial = sample
         sample_root = os.path.join(data_root, sample[1:])
-        data_paths.append(sample_root)
+        data_paths[trial] = sample_root
 
-        data_video_paths.append(os.path.join(sample_root, 'front_rgb.mp4'))
+        data_video_paths[trial] = os.path.join(sample_root, 'front_rgb.mp4')
 
         label = np.loadtxt(os.path.join(sample_root, 'label.txt'))
         stage1 = int(label[0] * (VIDEO_FPS / SENSOR_FPS))
         stage2 = int(label[1] * (VIDEO_FPS / SENSOR_FPS))
         stage3 = int(label[2] * (VIDEO_FPS / SENSOR_FPS))
-        labels.append(1 - int(label[3])) # nominal = 0, anomalous = 1
+        labels[trial] = 1 - int(label[3]) # nominal = 0, anomalous = 1
 
         # timestamp when the object is grasped based on the video
         grasp_time_video = int(open(os.path.join(sample_root, 'video_grasp_timestamp.txt')).read())
         video_sensor_offset = max(0, grasp_time_video - stage1)
-        data_video_sensor_offset.append(video_sensor_offset)
+        data_video_sensor_offset[trial] = video_sensor_offset
 
 
         with open(os.path.join(sample_root, 'anomaly_timestamp.txt'), 'r') as fp:
@@ -75,12 +84,12 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
             else:
                 vid_feat = np.load(resnet_path)
             vid_feat = vid_feat[video_sensor_offset:]
-            data_vid_feat.append(vid_feat)
+            data_vid_feat[trial] = vid_feat
         else:
             if use_i3d:
-                data_vid_feat.append([i3d_rgb_path, i3d_flow_path])
+                data_vid_feat[trial] = [i3d_rgb_path, i3d_flow_path]
             else:
-                data_vid_feat.append(resnet_path)
+                data_vid_feat[trial] = resnet_path
             i3d_rgb = np.load(i3d_rgb_path)
 
         actions = torch.zeros(i3d_rgb.shape[0], dtype=torch.int32)
@@ -90,28 +99,41 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
         actions[stage3:] = 3
         actions = actions[:-video_sensor_offset]
 
-        data_actions.append(actions)
+        data_actions[trial] = actions
         defect_mask = torch.zeros(i3d_rgb.shape[0], dtype=torch.int32)
         if anomalous:
             defect_mask[anomaly_start_frame:anomaly_end_frame] = 1
         defect_mask = defect_mask[video_sensor_offset:]
-        data_defect_mask.append(defect_mask)
+        data_defect_mask[trial] = defect_mask
 
         video_length = actions.shape[0]
 
         if tactile_data_type == 'image':
             positions = construct_position_tensor(np.loadtxt(os.path.join(sample_root, 'pos.txt')))
             positions = torch.from_numpy(positions)
-            data_joint_pos.append(positions)
+            data_joint_pos[trial] = positions
 
             tactile_data = construct_tactile_tensor(np.loadtxt(os.path.join(sample_root, 'tactile.txt')))
             tactile_data = torch.from_numpy(tactile_data)
-            data_tactile.append(tactile_data)
+            data_tactile[trial] = tactile_data
         else:
             positions = upsample_position(np.loadtxt(os.path.join(sample_root, 'pos.txt')))
-            data_joint_pos_1d.append(torch.from_numpy(positions))
+            data_joint_pos_1d[trial] = torch.from_numpy(positions)
             tactile_data = upsample_tactile(np.loadtxt(os.path.join(sample_root, 'tactile.txt')))
-            data_tactile_1d.append(torch.from_numpy(tactile_data))
+            data_tactile_1d[trial] = torch.from_numpy(tactile_data)
+
+        if (hparams.action_aligned_fps_aug and not training) or 'img_pair' in hparams.dataset:
+            unique_action_ids = [1, 2, 3]
+            for act_id in unique_action_ids:
+                data_trial_action.append(act_id)
+                data_trials.append(trial)
+            if 'img_pair' not in hparams.dataset:
+                # normal frame rate
+                data_trial_action.append(0)
+                data_trials.append(trial)
+        else:
+            data_trials.append(trial)
+            data_trial_action.append(0)
 
     data = {}
     data['path'] = data_paths
@@ -125,6 +147,8 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
     data['joint_pos_1d'] = data_joint_pos_1d
     data['tactile_1d'] = data_tactile_1d
     data['video_sensor_offset'] = data_video_sensor_offset
+    data['trials'] = data_trials
+    data['trial_action'] = data_trial_action
     return data
 
 def construct_tactile_tensor(tactile_data):
@@ -184,10 +208,48 @@ def upsample_position(position_data):
     position_data /= POS_MAX_MAGNITUDE
     return position_data
 
-def get_video(video_path, sensor_offset, num_frames_to_sample=64, training=False):
+def get_video(video_path, hparams, sensor_offset, samples=None, video_id=None, index=None, num_frames_to_sample=64, training=False):
     vr = decord.VideoReader(video_path)
-    start_frame = np.random.randint(0, 5) if training else 0
-    selected_frames = np.round(np.linspace(start_frame + sensor_offset, len(vr)-1, num_frames_to_sample)).astype(int)
+    if hparams.action_subset_frame_selection:
+        frame_seq = np.where(samples['action'][video_id] != 0)[0]
+        start_frame = np.random.randint(0, 5) if training else 0
+        selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)] + sensor_offset
+    elif hparams.action_aligned_fps_aug:
+        actions = samples['action'][video_id]
+        low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.25 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
+        unique_action_ids = [1, 2, 3]
+        if training:
+            while True:
+                selected_action = np.random.randint(0, 4)
+                if selected_action == 0:
+                    break
+                if len(np.where(actions == selected_action)[0]) > 10:
+                    break
+        else:
+            selected_action = samples['trial_action'][index]
+        if selected_action == 0:
+            selected_frames = constant_fps_frame_selection(
+                    actions,
+                    low_fps_action_counts,
+                    unique_action_ids,
+                    num_frames_to_sample=num_frames_to_sample,
+                    training=training
+            )
+        else:
+            high_fps_action = selected_action
+            del low_fps_action_counts[high_fps_action]
+            selected_frames = variable_fps_frame_selection(
+                    actions,
+                    high_fps_action,
+                    low_fps_action_counts,
+                    unique_action_ids,
+                    num_frames_to_sample=num_frames_to_sample,
+                    training=training
+            )
+        selected_frames = selected_frames + sensor_offset
+    else:
+        start_frame = np.random.randint(0, 5) if training else 0
+        selected_frames = np.round(np.linspace(start_frame + sensor_offset, len(vr)-1, num_frames_to_sample)).astype(int)
     vid = vr.get_batch(selected_frames)
     vid = vid.permute(0, 3, 1, 2) # T x C x H x W
     return vid, selected_frames
@@ -201,12 +263,7 @@ class VTDVideoDataset(torch.utils.data.Dataset):
         samples_list = np.genfromtxt(os.path.join(data_root, samples_list_file), dtype=str)
         self.lazy_loading = True
         self.use_i3d = True
-        self.data = load_data(data_root, samples_list, lazy_loading=self.lazy_loading, use_i3d=self.use_i3d, tactile_data_type=tactile_data_type)
-        self.maximum_length = 0
-        for idx in range(len(self.data['label'])):
-            robot_activity = self.data['action'][idx]
-            if len(robot_activity) > self.maximum_length:
-                self.maximum_length = len(robot_activity)
+        self.data = load_data(data_root, samples_list, lazy_loading=self.lazy_loading, use_i3d=self.use_i3d, tactile_data_type=tactile_data_type, hparams=hparams, training=training)
         self.num_action_classes = len(action_classes)
         self.training = training
         self.tactile_data_type = tactile_data_type
@@ -216,18 +273,19 @@ class VTDVideoDataset(torch.utils.data.Dataset):
 
 
     def __getitem__(self, index):
+        video_id = self.data['trials'][index]
         if self.tactile_data_type == 'image':
-            joint_pos = self.data['joint_pos_img'][index]
-            tactile = self.data['tactile_img'][index]
+            joint_pos = self.data['joint_pos_img'][video_id]
+            tactile = self.data['tactile_img'][video_id]
         elif self.tactile_data_type == '1d':
-            joint_pos = self.data['joint_pos_1d'][index]
-            tactile = self.data['tactile_1d'][index]
-        robot_activity = self.data['action'][index]
-        defect_mask = self.data['defect_mask'][index]
-        sensor_offset = self.data['video_sensor_offset'][index]
+            joint_pos = self.data['joint_pos_1d'][video_id]
+            tactile = self.data['tactile_1d'][video_id]
+        robot_activity = self.data['action'][video_id]
+        defect_mask = self.data['defect_mask'][video_id]
+        sensor_offset = self.data['video_sensor_offset'][video_id]
 
-        video_file = self.data['video_path'][index]
-        clip, frame_ids = get_video(video_file, sensor_offset, num_frames_to_sample=self.clip_size, training=self.training)
+        video_file = self.data['video_path'][video_id]
+        clip, frame_ids = get_video(video_file, self.hparams, sensor_offset, num_frames_to_sample=self.clip_size, training=self.training, video_id=video_id, index=index, samples=self.data)
 
         joint_pos = joint_pos[frame_ids-sensor_offset]
         tactile = tactile[frame_ids-sensor_offset]
@@ -243,8 +301,8 @@ class VTDVideoDataset(torch.utils.data.Dataset):
             clip = self.transform(clip)
             clip = clip.permute((1, 0, 2, 3)).contiguous() # C, T, H, W
 
-        labels = self.data['label'][index]
-        return clip, joint_pos, tactile, labels, self.data['path'][index]
+        labels = self.data['label'][video_id]
+        return clip, joint_pos, tactile, labels, self.data['path'][video_id]
 
     def __len__(self):
         return len(self.data['label'])
@@ -303,3 +361,4 @@ def compute_vtd_metrics(outputs, result_type='val'):
     results['%s_predictions' % result_type] = predictions
     results['%s_trial_names' % result_type] = trial_names
     return results
+
