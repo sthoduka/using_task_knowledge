@@ -135,6 +135,8 @@ class FailureClassificationTrainer(pl.LightningModule):
             del results['val_predictions']
             del results['val_logits']
             del results['val_trial_names']
+            if 'val_aug_logits' in results:
+                del results['val_aug_logits']
 
         for key, value in results.items():
             self.log(key, value)
@@ -217,6 +219,9 @@ class FailureClassificationTrainer(pl.LightningModule):
             np.save(os.path.join(save_path, 'logits.npy'), logits)
             with open(os.path.join(save_path, 'trials.json'), 'w') as fp:
                 json.dump(trial_names, fp)
+            if 'test_aug_logits' in results:
+                np.save(os.path.join(save_path, 'aug_logits.npy'), results['test_aug_logits'])
+                del results['test_aug_logits']
             del results['test_gt']
             del results['test_predictions']
             del results['test_logits']

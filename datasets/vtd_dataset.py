@@ -97,7 +97,8 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
         actions[stage1:stage2] = 1
         actions[stage2:stage3] = 2
         actions[stage3:] = 3
-        actions = actions[:-video_sensor_offset]
+        if video_sensor_offset != 0:
+            actions = actions[:-video_sensor_offset]
 
         data_actions[trial] = actions
         defect_mask = torch.zeros(i3d_rgb.shape[0], dtype=torch.int32)
@@ -274,6 +275,7 @@ class VTDVideoDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         video_id = self.data['trials'][index]
+        trial_action = self.data['trial_action'][index]
         if self.tactile_data_type == 'image':
             joint_pos = self.data['joint_pos_img'][video_id]
             tactile = self.data['tactile_img'][video_id]
@@ -302,7 +304,7 @@ class VTDVideoDataset(torch.utils.data.Dataset):
             clip = clip.permute((1, 0, 2, 3)).contiguous() # C, T, H, W
 
         labels = self.data['label'][video_id]
-        return clip, joint_pos, tactile, labels, self.data['path'][video_id]
+        return clip, joint_pos, tactile, labels, self.data['path'][video_id], trial_action
 
     def __len__(self):
         return len(self.data['label'])
@@ -327,13 +329,14 @@ def get_vtd_dataset(hparams, dataset_type='train'):
     return VTDVideoDataset(hparams.data_root, hparams, trials[dataset_type], tactile_data_type=hparams.vtd_tactile_data_type, transform=vid_transform, training=dataset_type=='train')
 
 def accumulate_vtd_results(batch, output, hparams):
-    clip, joint_pos, tactile, label, path = batch
+    clip, joint_pos, tactile, label, path, trial_action = batch
     per_vid_predictions = torch.argmax(output, axis=1).detach().cpu()
     outputs = {}
     outputs['cls_logits'] = output.detach().cpu()
     outputs['cls_predictions'] = per_vid_predictions
     outputs['cls_gt'] = label.detach().cpu()
     outputs['trial_names'] = path
+    outputs['robot_actions'] = trial_action.detach().cpu()
 
     return outputs
 
@@ -344,14 +347,17 @@ def compute_vtd_metrics(outputs, result_type='val'):
 
     trial_names = [out['trial_names'] for out in outputs]
     trial_names = list(itertools.chain(*trial_names))
+    robot_actions = [out['robot_actions'] for out in outputs]
+    robot_actions = np.array(list(itertools.chain(*robot_actions)))
 
-    gt = gt.numpy()
-    predictions = predictions.numpy()
+    nominal_fps_gt = gt[robot_actions == 0].numpy()
+    nominal_fps_pred = predictions[robot_actions == 0].numpy()
+    f1_score = sklearn.metrics.f1_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+    recall_score = sklearn.metrics.recall_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+    precision_score = sklearn.metrics.precision_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+
     logits = logits.numpy()
 
-    f1_score = sklearn.metrics.f1_score(gt, predictions, average='weighted')
-    recall_score = sklearn.metrics.recall_score(gt, predictions, average='weighted')
-    precision_score = sklearn.metrics.precision_score(gt, predictions, average='weighted')
     results = {}
     results['%s_f1_score' % result_type] = f1_score
     results['%s_recall' % result_type] = recall_score
@@ -360,5 +366,23 @@ def compute_vtd_metrics(outputs, result_type='val'):
     results['%s_logits' % result_type] = logits
     results['%s_predictions' % result_type] = predictions
     results['%s_trial_names' % result_type] = trial_names
+
+    if np.unique(robot_actions).shape[0] > 1:
+        unique_actions = np.unique(robot_actions)
+        aug_logits = None
+        for act in unique_actions:
+            if aug_logits is None:
+                aug_logits = logits[robot_actions == act]
+            else:
+                aug_logits += logits[robot_actions == act]
+        aug_logits /= len(unique_actions)
+        aug_pred = np.argmax(aug_logits, axis=1)
+        aug_f1_score = sklearn.metrics.f1_score(nominal_fps_gt, aug_pred, average='weighted')
+        aug_recall_score = sklearn.metrics.recall_score(nominal_fps_gt, aug_pred, average='weighted')
+        aug_precision_score = sklearn.metrics.precision_score(nominal_fps_gt, aug_pred, average='weighted')
+        results['%s_aug_f1_score' % result_type] = aug_f1_score
+        results['%s_aug_recall' % result_type] = aug_recall_score
+        results['%s_aug_precision' % result_type] = aug_precision_score
+        results['%s_aug_logits' % result_type] = aug_logits.numpy()
     return results
 

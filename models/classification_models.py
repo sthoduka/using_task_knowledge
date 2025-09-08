@@ -196,7 +196,7 @@ class MultimodalClassifier(nn.Module):
         if 'handover' in self.hparams.dataset:
             inputs, wrench, gripper_state, labels, vidx, trial_action = batch
         elif 'vtd' in self.hparams.dataset:
-            inputs, joint_pos, tactile, labels, vid = batch
+            inputs, joint_pos, tactile, labels, vid, trial_action = batch
 
         if 'handover' in self.hparams.dataset:
             i3d_feat = self.i3d.extract_features(inputs)
@@ -238,7 +238,7 @@ class MultimodalClassifier(nn.Module):
         if 'handover' in self.hparams.dataset:
             inputs, wrench, gripper_state, labels, vidx, trial_action = batch
         elif 'vtd' in self.hparams.dataset:
-            inputs, joint_pos, tactile, labels, vid = batch
+            inputs, joint_pos, tactile, labels, vid, trial_action = batch
         loss = F.cross_entropy(output, labels)
         return loss
 
