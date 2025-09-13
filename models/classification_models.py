@@ -106,7 +106,10 @@ class MultimodalClassifier(nn.Module):
                     self.i3d.load_state_dict(torch.load(hparams.i3d_model_path))
         in_channels = 1024
         if 'handover' in hparams.dataset:
-            in_channels = in_channels + 16 + 16
+            if 'g' in hparams.vtd_data_type:
+                in_channels += 16
+            if 'f' in hparams.vtd_data_type:
+                in_channels += 16
         if 'vtd' in hparams.dataset:
             if 'v' not in hparams.vtd_data_type:
                 in_channels = 0
@@ -127,24 +130,26 @@ class MultimodalClassifier(nn.Module):
             self.i3d.replace_logits(hparams.num_classes, in_channels=in_channels)
 
         if 'handover' in hparams.dataset:
-            self.wrench_conv = nn.Sequential(
-                                    nn.Conv1d(6, 32, kernel_size=3, padding=2, dilation=2),
-                                    nn.BatchNorm1d(32),
-                                    nn.ReLU(),
-                                    nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
-                                    nn.BatchNorm1d(16),
-                                    nn.ReLU(),
-                                    nn.AdaptiveAvgPool1d(7)
-                                    )
-            self.gripper_conv = nn.Sequential(
-                                    nn.Conv1d(1, 32, kernel_size=3, padding=2, dilation=2),
-                                    nn.BatchNorm1d(32),
-                                    nn.ReLU(),
-                                    nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
-                                    nn.BatchNorm1d(16),
-                                    nn.ReLU(),
-                                    nn.AdaptiveAvgPool1d(7)
-                                    )
+            if 'f' in hparams.vtd_data_type:
+                self.wrench_conv = nn.Sequential(
+                                        nn.Conv1d(6, 32, kernel_size=3, padding=2, dilation=2),
+                                        nn.BatchNorm1d(32),
+                                        nn.ReLU(),
+                                        nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                                        nn.BatchNorm1d(16),
+                                        nn.ReLU(),
+                                        nn.AdaptiveAvgPool1d(7)
+                                        )
+            if 'g' in hparams.vtd_data_type:
+                self.gripper_conv = nn.Sequential(
+                                        nn.Conv1d(1, 32, kernel_size=3, padding=2, dilation=2),
+                                        nn.BatchNorm1d(32),
+                                        nn.ReLU(),
+                                        nn.Conv1d(32, 16, kernel_size=3, padding=4, dilation=4),
+                                        nn.BatchNorm1d(16),
+                                        nn.ReLU(),
+                                        nn.AdaptiveAvgPool1d(7)
+                                        )
         if 'vtd' in hparams.dataset:
             if 't' in hparams.vtd_data_type:
                 if hparams.vtd_tactile_data_type == 'image':
@@ -200,9 +205,18 @@ class MultimodalClassifier(nn.Module):
 
         if 'handover' in self.hparams.dataset:
             i3d_feat = self.i3d.extract_features(inputs)
-            wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
-            gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
-            feat = torch.cat((i3d_feat, wout, gout), axis=1)
+            if 'f' in self.hparams.vtd_data_type:
+                wout = self.wrench_conv(wrench).unsqueeze(3).unsqueeze(3)
+            if 'g' in self.hparams.vtd_data_type:
+                gout = self.gripper_conv(gripper_state).unsqueeze(3).unsqueeze(3)
+            if 'f' and 'g' in self.hparams.vtd_data_type:
+                feat = torch.cat((i3d_feat, wout, gout), axis=1)
+            elif 'f' in self.hparams.vtd_data_type:
+                feat = torch.cat((i3d_feat, wout), axis=1)
+            elif 'g' in self.hparams.vtd_data_type:
+                feat = torch.cat((i3d_feat, gout), axis=1)
+            else:
+                feat = i3d_feat
             per_clip_logits = self.i3d.logits(self.i3d.dropout(feat)).squeeze(3).squeeze(3)
             per_clip_logits = torch.max(per_clip_logits, dim=2)[0]
         elif 'vtd' in self.hparams.dataset:
