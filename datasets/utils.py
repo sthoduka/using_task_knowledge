@@ -34,7 +34,15 @@ def variable_fps_frame_selection(action_seq, high_fps_action, low_fps_action_cou
         start_frame = np.random.randint(0, 5)
     else:
         start_frame = 0
-    high_fps_frames = action_frames[high_fps_action][np.round(np.linspace(start_frame, len(action_frames[high_fps_action])-1, num_frames_to_sample - num_low_fps_frames)).astype(int)]
+    if len(action_frames[high_fps_action]) == 0:
+        # if this action does not have any frames, randomly select one of the others
+        while True:
+            random_act_id = np.random.choice(unique_action_ids)
+            if len(action_frames[random_act_id]) > 0:
+                high_fps_frames = action_frames[random_act_id][np.round(np.linspace(start_frame, len(action_frames[random_act_id])-1, num_frames_to_sample - num_low_fps_frames)).astype(int)]
+                break
+    else:
+        high_fps_frames = action_frames[high_fps_action][np.round(np.linspace(start_frame, len(action_frames[high_fps_action])-1, num_frames_to_sample - num_low_fps_frames)).astype(int)]
     final_frames = []
     for act_id in unique_action_ids:
         if act_id == high_fps_action:
@@ -42,6 +50,7 @@ def variable_fps_frame_selection(action_seq, high_fps_action, low_fps_action_cou
         elif act_id in low_fps_action_counts:
             final_frames.append(low_fps_frames[act_id])
     selected_frames = np.concatenate(final_frames)
+    selected_frames = np.sort(selected_frames)
     return selected_frames
 
 def constant_fps_frame_selection(action_seq, low_fps_action_counts, unique_action_ids, num_frames_to_sample=32, training=True):

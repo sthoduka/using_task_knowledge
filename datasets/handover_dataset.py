@@ -110,17 +110,27 @@ def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL
         data_robot_actions[trial] = robot_actions
         human_activity_state = np.load(os.path.join(trial, 'human_activity.npy'))
         data_human_activity[trial] = human_activity_state
-        if hparams.action_aligned_fps_aug and not training:
-            unique_action_ids = [1, 2, 3]
-            for act_id in unique_action_ids:
-                data_trial_action.append(act_id)
+        if (hparams.action_aligned_fps_aug and not training):
+            if not hparams.action_subset_frame_selection:
+                unique_action_ids = [0, 1, 2, 3, 4, 5]
+                for act_id in unique_action_ids:
+                    data_trial_action.append(act_id)
+                    data_trials.append(trial)
+            else:
+                unique_action_ids = [1, 2, 3]
+                for act_id in unique_action_ids:
+                    data_trial_action.append(act_id)
+                    data_trials.append(trial)
+                # normal frame rate
+                data_trial_action.append(0)
                 data_trials.append(trial)
-            # normal frame rate
-            data_trial_action.append(0)
-            data_trials.append(trial)
         else:
-            data_trials.append(trial)
-            data_trial_action.append(0)
+            if not hparams.action_subset_frame_selection:
+                data_trials.append(trial)
+                data_trial_action.append(5)
+            else:
+                data_trials.append(trial)
+                data_trial_action.append(0)
     data = {}
     data['robot'] = data_robot_type
     data['task'] = data_task_type
@@ -136,45 +146,79 @@ def load_data(data_root, hparams, label_root=None, robot_type=ALL, task_type=ALL
     data['trial_action'] = data_trial_action
     return data
 
+
 def get_video(video_path, hparams, frame_seq, training=True, samples=None, video_id=None, index=None, load_video=True, num_frames_to_sample=64):
     vr = decord.VideoReader(video_path)
-    if len(frame_seq):
+    if len(frame_seq) and not hparams.action_aligned_fps_aug:
         # we just have one array of frame ids
         if isinstance(frame_seq, np.ndarray):
             start_frame = np.random.randint(0, 5) if training else 0
             selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)]
     elif hparams.action_aligned_fps_aug:
         actions = samples['robot_actions'][video_id]
-        low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.375 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
-        unique_action_ids = [1, 2, 3]
-        if training:
-            while True:
-                selected_action = np.random.randint(0, 4)
-                if selected_action == 0:
-                    break
-                if len(np.where(actions == selected_action)[0]) > 10:
-                    break
+        if hparams.action_subset_frame_selection:
+            low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.375 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
+            unique_action_ids = [1, 2, 3]
+            if training:
+                while True:
+                    selected_action = np.random.randint(0, 4)
+                    if selected_action == 0:
+                        break
+                    if len(np.where(actions == selected_action)[0]) > 10:
+                        break
+            else:
+                selected_action = samples['trial_action'][index]
+            if selected_action == 0:
+                selected_frames = constant_fps_frame_selection(
+                        actions,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            else:
+                high_fps_action = selected_action
+                del low_fps_action_counts[high_fps_action]
+                selected_frames = variable_fps_frame_selection(
+                        actions,
+                        high_fps_action,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
         else:
-            selected_action = samples['trial_action'][index]
-        if selected_action == 0:
-            selected_frames = constant_fps_frame_selection(
-                    actions,
-                    low_fps_action_counts,
-                    unique_action_ids,
-                    num_frames_to_sample=num_frames_to_sample,
-                    training=training
-            )
-        else:
-            high_fps_action = selected_action
-            del low_fps_action_counts[high_fps_action]
-            selected_frames = variable_fps_frame_selection(
-                    actions,
-                    high_fps_action,
-                    low_fps_action_counts,
-                    unique_action_ids,
-                    num_frames_to_sample=num_frames_to_sample,
-                    training=training
-            )
+            low_fps_action_counts = {0: int(0.1 * num_frames_to_sample), 1: int(0.2 * num_frames_to_sample), 2: int(0.3 * num_frames_to_sample), 3: int(0.2 * num_frames_to_sample), 4: int(0.1 * num_frames_to_sample)}
+            unique_action_ids = [0, 1, 2, 3, 4]
+            if training:
+                while True:
+                    selected_action = np.random.randint(0, 6)
+                    if selected_action == 5:
+                        break
+                    if len(np.where(actions == selected_action)[0]) > 10:
+                        break
+            else:
+                selected_action = samples['trial_action'][index]
+            if selected_action == 5:
+                selected_frames = constant_fps_frame_selection(
+                        actions,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            else:
+                high_fps_action = selected_action
+                del low_fps_action_counts[high_fps_action]
+                selected_frames = variable_fps_frame_selection(
+                        actions,
+                        high_fps_action,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+
     else:
         start_frame = np.random.randint(0, 5) if training else 0
         selected_frames = np.round(np.linspace(start_frame, len(vr)-1, num_frames_to_sample)).astype(int)
@@ -281,8 +325,7 @@ def get_handover_dataset(hparams, dataset_type='train'):
                     transforms.Resize(224),
                 ]
         )
-    if hparams.dataset == 'handover_video':
-        return HandoverDataset(dataset_root[dataset_type], hparams, label_root=label_root[dataset_type], training=dataset_type=='train', transform=vid_transform)
+    return HandoverDataset(dataset_root[dataset_type], hparams, label_root=label_root[dataset_type], training=dataset_type=='train', transform=vid_transform)
 
 
 def accumulate_handover_results(batch, output, hparams):
@@ -301,20 +344,31 @@ def compute_handover_metrics(outputs, result_type='val'):
     predictions = torch.cat([out['cls_predictions'] for out in outputs])
     gt = torch.cat([out['cls_gt'] for out in outputs])
     logits = torch.cat([out['cls_logits'] for out in outputs])
+    if 'orig_gt' in outputs[0]:
+        orig_gt = torch.cat([out['orig_gt'] for out in outputs])
 
     trial_names = [out['trial_names'] for out in outputs]
     trial_names = list(itertools.chain(*trial_names))
     robot_actions = [out['robot_actions'] for out in outputs]
     robot_actions = np.array(list(itertools.chain(*robot_actions)))
 
-    nominal_fps_gt = gt[robot_actions == 0]
-    nominal_fps_pred = predictions[robot_actions == 0]
-    accuracy = sklearn.metrics.accuracy_score(nominal_fps_gt, nominal_fps_pred)
+    if 5 in robot_actions:
+        nominal_fps_gt = gt[robot_actions == 5]
+        nominal_fps_pred = predictions[robot_actions == 5]
+        accuracy = sklearn.metrics.accuracy_score(nominal_fps_gt, nominal_fps_pred)
+    else:
+        nominal_fps_gt = gt[robot_actions == 0]
+        nominal_fps_pred = predictions[robot_actions == 0]
+        accuracy = sklearn.metrics.accuracy_score(nominal_fps_gt, nominal_fps_pred)
 
     results = {}
-    results['%s_accuracy' % result_type] = accuracy
+    if 5 in robot_actions:
+        results['%s_accuracy' % result_type] = accuracy
+        results['%s_gt' % result_type] = nominal_fps_gt
+    elif 0 in robot_actions:
+        results['%s_accuracy' % result_type] = accuracy
+        results['%s_gt' % result_type] = nominal_fps_gt
     results['%s_logits' % result_type] = logits
-    results['%s_gt' % result_type] = nominal_fps_gt
     results['%s_predictions' % result_type] = predictions
     results['%s_trial_names' % result_type] = trial_names
     results['%s_robot_actions' % result_type] = robot_actions
@@ -333,3 +387,4 @@ def compute_handover_metrics(outputs, result_type='val'):
         results['%s_aug_accuracy' % result_type] = aug_accuracy
         results['%s_aug_logits' % result_type] = aug_logits.numpy()
     return results
+
