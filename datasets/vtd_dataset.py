@@ -123,18 +123,27 @@ def load_data(data_root, samples, lazy_loading=True, use_i3d=True, tactile_data_
             tactile_data = upsample_tactile(np.loadtxt(os.path.join(sample_root, 'tactile.txt')))
             data_tactile_1d[trial] = torch.from_numpy(tactile_data)
 
-        if (hparams.action_aligned_fps_aug and not training) or 'img_pair' in hparams.dataset:
-            unique_action_ids = [1, 2, 3]
-            for act_id in unique_action_ids:
-                data_trial_action.append(act_id)
-                data_trials.append(trial)
-            if 'img_pair' not in hparams.dataset:
+        if (hparams.action_aligned_fps_aug and not training):
+            if not hparams.action_subset_frame_selection:
+                unique_action_ids = [0, 1, 2, 3, 4]
+                for act_id in unique_action_ids:
+                    data_trial_action.append(act_id)
+                    data_trials.append(trial)
+            else:
+                unique_action_ids = [1, 2, 3]
+                for act_id in unique_action_ids:
+                    data_trial_action.append(act_id)
+                    data_trials.append(trial)
                 # normal frame rate
                 data_trial_action.append(0)
                 data_trials.append(trial)
         else:
-            data_trials.append(trial)
-            data_trial_action.append(0)
+            if not hparams.action_subset_frame_selection:
+                data_trials.append(trial)
+                data_trial_action.append(4)
+            else:
+                data_trials.append(trial)
+                data_trial_action.append(0)
 
     data = {}
     data['path'] = data_paths
@@ -211,43 +220,76 @@ def upsample_position(position_data):
 
 def get_video(video_path, hparams, sensor_offset, samples=None, video_id=None, index=None, num_frames_to_sample=64, training=False):
     vr = decord.VideoReader(video_path)
-    if hparams.action_subset_frame_selection:
+    if hparams.action_subset_frame_selection and not hparams.action_aligned_fps_aug:
         frame_seq = np.where(samples['action'][video_id] != 0)[0]
         start_frame = np.random.randint(0, 5) if training else 0
         selected_frames = frame_seq[np.round(np.linspace(start_frame, len(frame_seq)-1, num_frames_to_sample)).astype(int)] + sensor_offset
     elif hparams.action_aligned_fps_aug:
         actions = samples['action'][video_id]
-        low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.25 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
-        unique_action_ids = [1, 2, 3]
-        if training:
-            while True:
-                selected_action = np.random.randint(0, 4)
-                if selected_action == 0:
-                    break
-                if len(np.where(actions == selected_action)[0]) > 10:
-                    break
+        if hparams.action_subset_frame_selection:
+            low_fps_action_counts = {1: int(0.25 * num_frames_to_sample), 2: int(0.25 * num_frames_to_sample), 3: int(0.25 * num_frames_to_sample)}
+            unique_action_ids = [1, 2, 3]
+            if training:
+                while True:
+                    selected_action = np.random.randint(0, 4)
+                    if selected_action == 0:
+                        break
+                    if len(np.where(actions == selected_action)[0]) > 10:
+                        break
+            else:
+                selected_action = samples['trial_action'][index]
+            if selected_action == 0:
+                selected_frames = constant_fps_frame_selection(
+                        actions,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            else:
+                high_fps_action = selected_action
+                del low_fps_action_counts[high_fps_action]
+                selected_frames = variable_fps_frame_selection(
+                        actions,
+                        high_fps_action,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            selected_frames = selected_frames + sensor_offset
         else:
-            selected_action = samples['trial_action'][index]
-        if selected_action == 0:
-            selected_frames = constant_fps_frame_selection(
-                    actions,
-                    low_fps_action_counts,
-                    unique_action_ids,
-                    num_frames_to_sample=num_frames_to_sample,
-                    training=training
-            )
-        else:
-            high_fps_action = selected_action
-            del low_fps_action_counts[high_fps_action]
-            selected_frames = variable_fps_frame_selection(
-                    actions,
-                    high_fps_action,
-                    low_fps_action_counts,
-                    unique_action_ids,
-                    num_frames_to_sample=num_frames_to_sample,
-                    training=training
-            )
-        selected_frames = selected_frames + sensor_offset
+            low_fps_action_counts = {0: int(0.2 * num_frames_to_sample), 1: int(0.2 * num_frames_to_sample), 2: int(0.2 * num_frames_to_sample), 3: int(0.2 * num_frames_to_sample)}
+            unique_action_ids = [0, 1, 2, 3]
+            if training:
+                while True:
+                    selected_action = np.random.randint(0, 5)
+                    if selected_action == 4:
+                        break
+                    if len(np.where(actions == selected_action)[0]) > 10:
+                        break
+            else:
+                selected_action = samples['trial_action'][index]
+            if selected_action == 4:
+                selected_frames = constant_fps_frame_selection(
+                        actions,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            else:
+                high_fps_action = selected_action
+                del low_fps_action_counts[high_fps_action]
+                selected_frames = variable_fps_frame_selection(
+                        actions,
+                        high_fps_action,
+                        low_fps_action_counts,
+                        unique_action_ids,
+                        num_frames_to_sample=num_frames_to_sample,
+                        training=training
+                )
+            selected_frames = selected_frames + sensor_offset
     else:
         start_frame = np.random.randint(0, 5) if training else 0
         selected_frames = np.round(np.linspace(start_frame + sensor_offset, len(vr)-1, num_frames_to_sample)).astype(int)
@@ -307,7 +349,7 @@ class VTDVideoDataset(torch.utils.data.Dataset):
         return clip, joint_pos, tactile, labels, self.data['path'][video_id], trial_action
 
     def __len__(self):
-        return len(self.data['label'])
+        return len(self.data['trials'])
 
 def get_vtd_dataset(hparams, dataset_type='train'):
     trials = {'train': hparams.training_trials, 'val': hparams.val_trials, 'test': hparams.test_trials}
@@ -350,11 +392,18 @@ def compute_vtd_metrics(outputs, result_type='val'):
     robot_actions = [out['robot_actions'] for out in outputs]
     robot_actions = np.array(list(itertools.chain(*robot_actions)))
 
-    nominal_fps_gt = gt[robot_actions == 0].numpy()
-    nominal_fps_pred = predictions[robot_actions == 0].numpy()
-    f1_score = sklearn.metrics.f1_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
-    recall_score = sklearn.metrics.recall_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
-    precision_score = sklearn.metrics.precision_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+    if 4 in robot_actions:
+        nominal_fps_gt = gt[robot_actions == 4].numpy()
+        nominal_fps_pred = predictions[robot_actions == 4].numpy()
+        f1_score = sklearn.metrics.f1_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+        recall_score = sklearn.metrics.recall_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+        precision_score = sklearn.metrics.precision_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+    else:
+        nominal_fps_gt = gt[robot_actions == 0].numpy()
+        nominal_fps_pred = predictions[robot_actions == 0].numpy()
+        f1_score = sklearn.metrics.f1_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+        recall_score = sklearn.metrics.recall_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
+        precision_score = sklearn.metrics.precision_score(nominal_fps_gt, nominal_fps_pred, average='weighted')
 
     logits = logits.numpy()
 
@@ -383,6 +432,5 @@ def compute_vtd_metrics(outputs, result_type='val'):
         results['%s_aug_f1_score' % result_type] = aug_f1_score
         results['%s_aug_recall' % result_type] = aug_recall_score
         results['%s_aug_precision' % result_type] = aug_precision_score
-        results['%s_aug_logits' % result_type] = aug_logits.numpy()
+        results['%s_aug_logits' % result_type] = aug_logits
     return results
-
